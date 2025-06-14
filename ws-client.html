@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>ESP32 Joystick Control</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            touch-action: none; /* Disables browser gestures like pull-to-refresh */
+        }
+        #joystick-base {
+            width: 150px;
+            height: 150px;
+            background-color: #e0e0e0;
+            border-radius: 50%;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: inset 0 0 15px rgba(0,0,0,0.2);
+            border: 2px solid #c7c7c7;
+        }
+        #joystick-handle {
+            width: 75px;
+            height: 75px;
+            background: linear-gradient(145deg, #ffffff, #d6d6d6);
+            border-radius: 50%;
+            position: absolute;
+            cursor: grab;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            border: 1px solid #f0f0f0;
+            transition: transform 0.1s ease-out; /* Smooth return to center */
+        }
+        #joystick-handle:active {
+            cursor: grabbing;
+            transform: scale(0.95);
+            background: linear-gradient(145deg, #d6d6d6, #ffffff);
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen overflow-hidden">
+
+    <div class="text-center mb-8">
+        <h1 class="text-3xl font-bold text-gray-100">ESP32 Cart Control</h1>
+        <p class="text-gray-400">Drag the joystick to drive.</p>
+    </div>
+
+    <!-- Connection Status -->
+    <div id="status" class="mb-4 flex items-center justify-center space-x-2 text-lg font-medium p-3 rounded-lg bg-gray-800">
+        <span id="status-indicator" class="h-3 w-3 rounded-full bg-gray-500 animate-pulse"></span>
+        <span id="status-text" class="text-gray-400">Connecting...</span>
+    </div>
+
+    <!-- Joystick -->
+    <div id="joystick-base">
+        <div id="joystick-handle"></div>
+    </div>
+    
+    <!-- Coordinate Display for Debugging -->
+    <div class="mt-8 p-4 bg-gray-800 rounded-lg font-mono text-sm text-gray-300">
+        <p>X: <span id="x-coord">0.00</span></p>
+        <p>Y: <span id="y-coord">0.00</span></p>
+    </div>
+
+    <script>
+        // --- WebSocket Connection ---
+        const websocketUrl = 'ws://192.168.4.1:8080';
+        let websocket;
+        let dataInterval;
+
+        const statusIndicator = document.getElementById('status-indicator');
+        const statusText = document.getElementById('status-text');
+
+        function connectWebSocket() {
+            console.log('Attempting to connect to WebSocket...');
+            websocket = new WebSocket(websocketUrl);
+
+            websocket.onopen = (event) => {
+                console.log('WebSocket connection opened.');
+                statusIndicator.classList.remove('bg-gray-500', 'bg-red-500', 'animate-pulse');
+                statusIndicator.classList.add('bg-green-500');
+                statusText.textContent = 'Connected';
+                statusText.classList.remove('text-gray-400', 'text-red-400');
+                statusText.classList.add('text-green-400');
+                // Start sending data only when connected
+                dataInterval = setInterval(sendJoystickData, 100); // Send data every 100ms
+            };
+
+            websocket.onclose = (event) => {
+                console.log('WebSocket connection closed. Reconnecting...');
+                statusIndicator.classList.remove('bg-green-500');
+                statusIndicator.classList.add('bg-red-500', 'animate-pulse');
+                statusText.textContent = 'Disconnected';
+                statusText.classList.remove('text-green-400');
+                statusText.classList.add('text-red-400');
+                // Stop sending data if disconnected
+                clearInterval(dataInterval);
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            websocket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        }
+
+        // --- Joystick Logic ---
+        const joystickBase = document.getElementById('joystick-base');
+        const joystickHandle = document.getElementById('joystick-handle');
+        const xCoord = document.getElementById('x-coord');
+        const yCoord = document.getElementById('y-coord');
+        
+        let isDragging = false;
+        let joystick = { x: 0, y: 0 };
+        const baseRect = joystickBase.getBoundingClientRect();
+        const handleRadius = joystickHandle.offsetWidth / 2;
+        const baseRadius = joystickBase.offsetWidth / 2;
+        const maxMove = baseRadius - handleRadius;
+
+        function startDrag(event) {
+            isDragging = true;
+            joystickHandle.style.transition = 'none'; // Disable smooth return during drag
+        }
+
+        function endDrag(event) {
+            if (!isDragging) return;
+            isDragging = false;
+            joystick.x = 0;
+            joystick.y = 0;
+            joystickHandle.style.transition = 'transform 0.1s ease-out'; // Re-enable smooth return
+            joystickHandle.style.transform = 'translate(0px, 0px)';
+            updateCoordsDisplay();
+            // Final stop command is sent by the interval
+        }
+
+        function onDrag(event) {
+            if (!isDragging) return;
+            event.preventDefault();
+
+            let clientX, clientY;
+            if (event.touches) {
+                clientX = event.touches[0].clientX;
+                clientY = event.touches[0].clientY;
+            } else {
+                clientX = event.clientX;
+                clientY = event.clientY;
+            }
+
+            let deltaX = clientX - baseRect.left - baseRadius;
+            let deltaY = clientY - baseRect.top - baseRadius;
+            
+            // Pythagorean theorem to find distance from center
+            const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            
+            // Constrain handle within the base
+            if (distance > maxMove) {
+                const angle = Math.atan2(deltaY, deltaX);
+                deltaX = Math.cos(angle) * maxMove;
+                deltaY = Math.sin(angle) * maxMove;
+            }
+
+            joystickHandle.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+            
+            // Normalize values from -1.0 to 1.0
+            joystick.x = deltaX / maxMove;
+            joystick.y = -deltaY / maxMove; // Y is inverted for typical joystick control
+
+            updateCoordsDisplay();
+        }
+
+        function updateCoordsDisplay() {
+            xCoord.textContent = joystick.x.toFixed(2);
+            yCoord.textContent = joystick.y.toFixed(2);
+        }
+
+        function sendJoystickData() {
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                const data = JSON.stringify({
+                    x: parseFloat(joystick.x.toFixed(4)),
+                    y: parseFloat(joystick.y.toFixed(4))
+                });
+                websocket.send(data);
+            }
+        }
+        
+        // Mouse Events
+        joystickHandle.addEventListener('mousedown', startDrag);
+        window.addEventListener('mousemove', onDrag);
+        window.addEventListener('mouseup', endDrag);
+
+        // Touch Events
+        joystickHandle.addEventListener('touchstart', startDrag, { passive: false });
+        window.addEventListener('touchmove', onDrag, { passive: false });
+        window.addEventListener('touchend', endDrag);
+        window.addEventListener('touchcancel', endDrag);
+
+        // Initial connection
+        window.onload = connectWebSocket;
+
+    </script>
+</body>
+</html>
