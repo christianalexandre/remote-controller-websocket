@@ -17,7 +17,7 @@ const int motorB_enable_pin = 25; // ENB on H-Bridge
 const int MAX_PWM_SPEED = 255;  // Max speed for analogWrite
 
 // --- Wi-Fi Network Configuration ---
-const char* ssid = "ESP32-Carrinho";
+const char* ssid = "ESP32-AP";
 const char* password = "12345678";
 
 // --- WebSocket Server ---
@@ -93,21 +93,14 @@ void onMessage(WebsocketsClient &client, WebsocketsMessage message) {
 }
 
 void driveMotorsXY(float x, float y) {
-  float left_speed_raw = y + x;
-  float right_speed_raw = y - x;
+  // Inverte o valor de 'y' para corrigir a direção frente/trás
+  int drive_pwm = (int)(-y * MAX_PWM_SPEED); 
+  setMotorSpeed(motorA_pin1, motorA_pin2, motorA_enable_pin, drive_pwm);
 
-  float left_speed = constrain(left_speed_raw, -1.0, 1.0);
-  float right_speed = constrain(right_speed_raw, -1.0, 1.0);
-
-  int left_pwm = (int)(left_speed * MAX_PWM_SPEED);
-  int right_pwm = (int)(right_speed * MAX_PWM_SPEED);
-
-  // Control Motor A (Left)
-  setMotorSpeed(motorA_pin1, motorA_pin2, motorA_enable_pin, left_pwm);
-  // Control Motor B (Right)
-  setMotorSpeed(motorB_pin1, motorB_pin2, motorB_enable_pin, right_pwm);
+  // Motor de Direção (controlado por X) - sem alterações
+  int steer_pwm = (int)(x * MAX_PWM_SPEED);
+  setMotorSpeed(motorB_pin1, motorB_pin2, motorB_enable_pin, steer_pwm);
 }
-
 
 /**
  * @brief Sets the speed and direction of a single motor using analogWrite.
