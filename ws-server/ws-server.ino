@@ -40,7 +40,7 @@ void setup() {
   pinMode(motorB_pin1, OUTPUT);
   pinMode(motorB_pin2, OUTPUT);
 
-  // Set motor enable/pwm pins as output. This is good practice.
+  // Set motor enable/pwm pins as output.
   pinMode(motorA_enable_pin, OUTPUT);
   pinMode(motorB_enable_pin, OUTPUT);
   
@@ -93,11 +93,9 @@ void onMessage(WebsocketsClient &client, WebsocketsMessage message) {
 }
 
 void driveMotorsXY(float x, float y) {
-  // Inverte o valor de 'y' para corrigir a direção frente/trás
   int drive_pwm = (int)(-y * MAX_PWM_SPEED); 
   setMotorSpeed(motorA_pin1, motorA_pin2, motorA_enable_pin, drive_pwm);
-
-  // Motor de Direção (controlado por X) - sem alterações
+  
   int steer_pwm = (int)(x * MAX_PWM_SPEED);
   setMotorSpeed(motorB_pin1, motorB_pin2, motorB_enable_pin, steer_pwm);
 }
